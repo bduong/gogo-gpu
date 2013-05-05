@@ -2,6 +2,11 @@
 #include <stdlib.h>
 #include <time.h>
 
+#ifdef __MACH__
+#include <mach/clock.h>
+#include <mach/mach.h>
+#endif
+
 #define GIG 1000000000
 
 /***************************************************************************************
@@ -22,18 +27,22 @@
 #define OUTPUT_Y_WIDTH Y_WIDTH/BLOCK_WIDTH
 
 #define CALC_INDEX(x,y) (x) * X_WIDTH +(y)
-#define CALC_INDEX_MOD(x,y, width) (x) * (width) +(y)
-#define GET_TIME(timespec) timespec.tv_sec, timespec.tv_nsec
-#define RECORD_START clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
-#define RECORD_END clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
 
+#define CALC_INDEX_MOD(x,y, width) (x) * (width) +(y)
+#define GET_TIME(timespec) (int) timespec.tv_sec, (int) timespec.tv_nsec
+//#define RECORD_START clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
+//#define RECORD_END clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
+
+#define RECORD_START current_utc_time(&start);
+#define RECORD_END current_utc_time(&end);
 
 float * init_matrix(int x_width, int y_width);
 struct timespec diff(struct timespec, struct timespec);
 double fRand(double fmin, double fmax);
 void seed_matrix(float * matrix, int size);
 int log_2(int number);
-int clock_gettime(clockid_t clk_id, struct timespec *tp);
+//int clock_gettime(clockid_t clk_id, struct timespec *tp);
+void current_utc_time(struct timespec *ts);
 
 /***************************************************************************************
 * Testing Functions
@@ -167,6 +176,23 @@ int log_2(int num) {
 		case 512 : return 9;
 		case 1024: return 10;
 	}
+}
+
+
+void current_utc_time(struct timespec *ts) {
+ 
+#ifdef __MACH__ // OS X does not have clock_gettime, use clock_get_time
+  clock_serv_t cclock;
+  mach_timespec_t mts;
+  host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
+  clock_get_time(cclock, &mts);
+  mach_port_deallocate(mach_task_self(), cclock);
+  ts->tv_sec = mts.tv_sec;
+  ts->tv_nsec = mts.tv_nsec;
+#else
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, ts);
+#endif
+ 
 }
 /*
 * Helper Functions End
