@@ -8,20 +8,21 @@
 #include <mach/mach.h>
 #endif
 
+#include <defines.h>
 #define GIG 1000000000
 
 /***************************************************************************************
 * User Definable Values
 */ 
 #define CPG 2.52           	// Cycles per GHz -- Adjust to your computer
-#define X_WIDTH 4000 		// must be divisible by 2
-#define Y_WIDTH 4000 		// and sufficiently large (ie > 50)
+//#define X_WIDTH 1000 		// must be divisible by 2
+//#define Y_WIDTH 1000 		// and sufficiently large (ie > 50)
 #define FRAND_MIN -10
 #define FRAND_MAX 10
-#define BLOCK_WIDTH 8 		//MUST be a power of 2
+//#define BLOCK_WIDTH 8 		//MUST be a power of 2
 #define ITERATIONS 200
 #define TOL 0.00
-#define NUM_THREADS 4
+//#define NUM_THREADS 4
 /*
 * User Definable Values End
 ***************************************************************************************/
@@ -96,7 +97,8 @@ main(int argc, char * argv[]) {
 	CHECK_CORRECTNESS
 	free(output);
 
-	printf("Time to do %d iterations       downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));
+//	printf("Time to do %d iterations       downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));
+	printf("%d.%d \t",GET_TIME(difference));
 /*
 * Downsampling Test End
 ***************************************************************************************/
@@ -115,14 +117,15 @@ main(int argc, char * argv[]) {
 	CHECK_CORRECTNESS
 	free(output);
    
-   	printf("Time to do %d iterations tiered downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));      
+//   	printf("Time to do %d iterations tiered downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));      
+	printf("%d.%d\n", GET_TIME(difference));
 /*
 * Tiered Downsampling Test
 ***************************************************************************************/   
 /**************************************************************************************
 * Threaded Downsampling Test
 */
-	output = init_matrix(OUTPUT_X_WIDTH, OUTPUT_Y_WIDTH);
+/*	output = init_matrix(OUTPUT_X_WIDTH, OUTPUT_Y_WIDTH);
    
    	RECORD_START
 	for (loop = ITERATIONS; loop > 0; loop--) {
@@ -134,6 +137,7 @@ main(int argc, char * argv[]) {
 	free(output);
    
    	printf("Time to do %d iterations %d-threaded downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, NUM_THREADS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));      
+*/
 /*
 * Threaded Downsampling Test
 ***************************************************************************************/   
