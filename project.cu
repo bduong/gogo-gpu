@@ -8,11 +8,12 @@
 #include <helper_cuda.h>
 #include <helper_timer.h>
 #include <helper_functions.h>
+#include "defines.h"
 
-#define SM_ARR_LEN		4000
-#define FACTOR                  8     //downsample factor
+//#define SM_ARR_LEN		20000
+//#define FACTOR                  8     //downsample factor
 #define OUT_ARR_LEN             SM_ARR_LEN/FACTOR
-//#define TILE_WIDTH              10
+#define TILE_WIDTH              8
 #define BLOCKS                  OUT_ARR_LEN/TILE_WIDTH
 #define TOL			1710e-6
 
@@ -51,10 +52,10 @@ __global__ void downsample(const float* input, float* output, int Width)
     int tx = threadIdx.x; int ty = threadIdx.y;
 
     // Identify the row and column of the Pd element to work on
-//    int Row = by * TILE_WIDTH + ty;
-//    int Col = bx * TILE_WIDTH + tx;
-    int Row = by * FACTOR + ty;
-    int Col = bx * FACTOR + tx;
+    int Row = by * TILE_WIDTH + ty;
+    int Col = bx * TILE_WIDTH + tx;
+  //  int Row = by * FACTOR + ty;
+//    int Col = bx * FACTOR + tx;
     float Pvalue = 0.0; // REGISTER!
 
     for (int j = 0; j<FACTOR; ++j)
@@ -96,8 +97,8 @@ cudaEventCreate(&stop);
     int numElementsout = OUT_ARR_LEN*OUT_ARR_LEN;
     size_t size = numElements * sizeof(float);
     size_t size_out = numElementsout * sizeof(float);  //output matrix
-    printf("Downsample of %d elements \n",numElements);
-    printf("Output of %d elements \n",numElementsout);
+//    printf("Downsample of %d elements \n",numElements);
+//    printf("Output of %d elements \n",numElementsout);
 
     // Allocate HOST MEMORY
     float *h_A = (float*) malloc(size);
@@ -118,7 +119,7 @@ cudaEventCreate(&stop);
       sdkStartTimer(&kernelTime);  
 //    if (0)   //don't do CUDA
 //   {
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time3); //get start time for cuda
+//    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time3); //get start time for cuda
     // Allocat DEVICE vectors
     float *d_A = NULL;
     float *d_B = NULL;
@@ -137,7 +138,7 @@ cudaEventCreate(&stop);
     }
 
     // Copy Matrices to DEVICE
-    printf("Copy input data from the host memory to the CUDA device \n");   
+  //  printf("Copy input data from the host memory to the CUDA device \n");   
     err = cudaMemcpy(d_A, h_A, size , cudaMemcpyHostToDevice);
     if(err != cudaSuccess)
     {
@@ -149,7 +150,7 @@ cudaEventCreate(&stop);
 	fprintf(stderr, "Failed to copy Matrix B from hos to device (error code %s)! \n", cudaGetErrorString(err));
     }
 
-    printf("CUDA kernel launch with %d blocks of %d threads \n", BLOCKS, TILE_WIDTH*TILE_WIDTH);
+//    printf("CUDA kernel launch with %d blocks of %d threads \n", BLOCKS, TILE_WIDTH*TILE_WIDTH);
 
     dim3 blocksPerGrid(BLOCKS,BLOCKS,1);
     dim3 threadsPerBlock(TILE_WIDTH,TILE_WIDTH,1);
@@ -157,8 +158,8 @@ cudaEventCreate(&stop);
 //    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time1);
 //    sdkStartTimer(&kernelTime);
     for (int j=0; j<200; j++)
-//    downsample <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
-    smoothing <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B);
+    downsample <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
+//    smoothing <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B);
 //    cudaDeviceSynchronize();
 //    sdkStopTimer(&kernelTime);
 //    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time2);
@@ -173,7 +174,7 @@ cudaEventCreate(&stop);
     }
     // Copy the device result vector in device memory to the host result vector
     // in host memory
-    printf("Copy output data from CUDA device to the host memory \n");
+//    printf("Copy output data from CUDA device to the host memory \n");
     err = cudaMemcpy(h_B,d_B,size_out,cudaMemcpyDeviceToHost);
     if(err != cudaSuccess)
     {
@@ -202,8 +203,8 @@ cudaEventCreate(&stop);
 	fprintf(stderr,"Failed to deinitialize the device! (error code %s)! \n",cudaGetErrorString(err));
 	exit(EXIT_FAILURE);
     }
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time4);
-    time_stamp[0] = diff(time3,time4);
+//    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time4);
+//    time_stamp[0] = diff(time3,time4);
 //    } //-----------don't do gpu
     cudaDeviceSynchronize();
     sdkStopTimer(&kernelTime);
@@ -234,18 +235,19 @@ cudaEventCreate(&stop);
 
 //    printf("cuda time: %ld\n", (long int)((double)(CPG)*(double)
 //		 (GIG * time_stamp[0].tv_sec + time_stamp[0].tv_nsec)));
-    printf ("Time for the kernel: %f ms\n", sdkGetTimerValue(&kernelTime));
+//    printf ("Time for the kernel: %f ms\n", sdkGetTimerValue(&kernelTime));
+    printf (" %f \n", sdkGetTimerValue(&kernelTime) /1000);
 
-    printf("\n");
-    printf("cpu time: %ld\n", (long int)((double)(CPG)*(double)
-		 (GIG * time_stamp[1].tv_sec + time_stamp[1].tv_nsec)));
-    printf("\n");
+  //  printf("\n");
+  //  printf("cpu time: %ld\n", (long int)((double)(CPG)*(double)
+//		 (GIG * time_stamp[1].tv_sec + time_stamp[1].tv_nsec)));
+  //  printf("\n");
     
 // free hosts memory
     free(h_A);
     free(h_B);
 
-    printf("DONE \n");
+//    printf("DONE \n");
     return 0;
 }
 
