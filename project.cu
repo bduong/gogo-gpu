@@ -5,11 +5,14 @@
 #include <string.h>
 #include <math.h>     
 #include <time.h>
+#include <helper_cuda.h>
+#include <helper_timer.h>
+#include <helper_functions.h>
 
-#define SM_ARR_LEN		100
-#define FACTOR                  2     //downsample factor
+#define SM_ARR_LEN		4000
+#define FACTOR                  8     //downsample factor
 #define OUT_ARR_LEN             SM_ARR_LEN/FACTOR
-#define TILE_WIDTH              10
+//#define TILE_WIDTH              10
 #define BLOCKS                  OUT_ARR_LEN/TILE_WIDTH
 #define TOL			1710e-6
 
@@ -21,16 +24,37 @@
 * Computes the vector addition of A and B into C. The three vectors have the same
 * number of elements numElements.
 */
+__global__ void smoothing(const float* input, float* output)
+{
+    int tx = threadIdx.x; int ty = threadIdx.y;
+    float sum = 0.0f;
+    
+    if (((tx>0) && (tx < SM_ARR_LEN-1))&&((ty>0) && (ty < SM_ARR_LEN-1)))
+    {
+	sum=0.25*(input[tx * SM_ARR_LEN + ty]);  //center value
+	sum+=0.125*(input[(tx-1)*SM_ARR_LEN+ty] + input[(tx+1)*SM_ARR_LEN+ty]);  //top and bottom
+        sum+=0.125*(input[tx*SM_ARR_LEN + (ty-1)] + input[tx*SM_ARR_LEN + (ty+1)]);  //left and right
+        sum+=0.0625*(input[(tx-1)*SM_ARR_LEN+(ty-1)] + input[(tx-1)*SM_ARR_LEN+(ty+1)]);  //upper corners
+	sum+=0.0625*(input[(tx+1)*SM_ARR_LEN+(ty-1)] + input[(tx+1)*SM_ARR_LEN+(ty+1)]);  //lower corners
+    }
+
+    output[tx * SM_ARR_LEN + ty] = sum;
+}
+    
+
 
 __global__ void downsample(const float* input, float* output, int Width)
 {
+//    __shared__ float input_s[TILE_WIDTH][TILE_WIDTH];
+
     int bx = blockIdx.x; int by = blockIdx.y; // ID thread
     int tx = threadIdx.x; int ty = threadIdx.y;
 
     // Identify the row and column of the Pd element to work on
-    int Row = by * TILE_WIDTH + ty;
-    int Col = bx * TILE_WIDTH + tx;
-
+//    int Row = by * TILE_WIDTH + ty;
+//    int Col = bx * TILE_WIDTH + tx;
+    int Row = by * FACTOR + ty;
+    int Col = bx * FACTOR + tx;
     float Pvalue = 0.0; // REGISTER!
 
     for (int j = 0; j<FACTOR; ++j)
@@ -51,6 +75,16 @@ int main(void)
     struct timespec time1, time2, time3, time4;
     struct timespec time_stamp[2];
     float difference;
+/*
+cudaEvent_t start, stop;
+float time;
+cudaEventCreate(&start);
+cudaEventCreate(&stop);
+*/
+  StopWatchInterface *kernelTime = 0;
+
+ sdkCreateTimer(&kernelTime);
+ sdkResetTimer(&kernelTime);
 
     // Error code to check return values for CUDA calls
     cudaError_t err = cudaSuccess;
@@ -81,7 +115,7 @@ int main(void)
 	h_B[j] = 0.0f;
     }
 
-    
+      sdkStartTimer(&kernelTime);  
 //    if (0)   //don't do CUDA
 //   {
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time3); //get start time for cuda
@@ -100,7 +134,8 @@ int main(void)
     {
 	fprintf(stderr, "Failed to allocate device matrix B (error code %s)!\n", cudaGetErrorString(err));
 	exit(EXIT_FAILURE);
-    }
+    }
+
     // Copy Matrices to DEVICE
     printf("Copy input data from the host memory to the CUDA device \n");   
     err = cudaMemcpy(d_A, h_A, size , cudaMemcpyHostToDevice);
@@ -119,9 +154,14 @@ int main(void)
     dim3 blocksPerGrid(BLOCKS,BLOCKS,1);
     dim3 threadsPerBlock(TILE_WIDTH,TILE_WIDTH,1);
 
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time1);
-    downsample <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time2);
+//    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time1);
+//    sdkStartTimer(&kernelTime);
+    for (int j=0; j<200; j++)
+//    downsample <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
+    smoothing <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B);
+//    cudaDeviceSynchronize();
+//    sdkStopTimer(&kernelTime);
+//    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time2);
 
 
     err = cudaGetLastError();
@@ -165,7 +205,8 @@ int main(void)
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time4);
     time_stamp[0] = diff(time3,time4);
 //    } //-----------don't do gpu
-
+    cudaDeviceSynchronize();
+    sdkStopTimer(&kernelTime);
 /*    
     if (0) //don't do cpu
     {
@@ -177,7 +218,7 @@ int main(void)
     } //----------don't do cpu
 */
 
-    for(int i=0; i < numElementsout; i++)
+//    for(int i=0; i < numElementsout; i++)
     {
 //        difference = abs(h_B[i]-h_B[i]);
 //        difference = abs(h_B[i]-1.0);
@@ -185,14 +226,16 @@ int main(void)
 //	{
 //	    fprintf(stderr, "Result verification failed at element %d\n",i);
 //            printf("GPU: %f     CPU: %f     difference: %f\n", h_A[i], h_B[i], difference);
-            printf("GPU: %f     CPU: %f     index: %d\n", h_A[i], h_B[i], i);
+//*            printf("GPU: %f     CPU: %f     index: %d\n", h_A[i], h_B[i], i);
 //            printf("difference: %f\n", difference);
 //	    exit(EXIT_FAILURE);
 //	}
     }
 
-    printf("cuda time: %ld\n", (long int)((double)(CPG)*(double)
-		 (GIG * time_stamp[0].tv_sec + time_stamp[0].tv_nsec)));
+//    printf("cuda time: %ld\n", (long int)((double)(CPG)*(double)
+//		 (GIG * time_stamp[0].tv_sec + time_stamp[0].tv_nsec)));
+    printf ("Time for the kernel: %f ms\n", sdkGetTimerValue(&kernelTime));
+
     printf("\n");
     printf("cpu time: %ld\n", (long int)((double)(CPG)*(double)
 		 (GIG * time_stamp[1].tv_sec + time_stamp[1].tv_nsec)));
