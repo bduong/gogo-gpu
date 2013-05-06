@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <pthread.h>
 
 #ifdef __MACH__
 #include <mach/clock.h>
@@ -18,6 +19,9 @@
 #define FRAND_MIN -10
 #define FRAND_MAX 10
 #define BLOCK_WIDTH 8 		//MUST be a power of 2
+#define ITERATIONS 200
+#define TOL 0.00
+#define NUM_THREADS 4
 /*
 * User Definable Values End
 ***************************************************************************************/
@@ -35,6 +39,7 @@
 
 #define RECORD_START current_utc_time(&start);
 #define RECORD_END current_utc_time(&end);
+#define CHECK_CORRECTNESS check_downsample(check, output);
 
 float * init_matrix(int x_width, int y_width);
 struct timespec diff(struct timespec, struct timespec);
@@ -43,6 +48,9 @@ void seed_matrix(float * matrix, int size);
 int log_2(int number);
 //int clock_gettime(clockid_t clk_id, struct timespec *tp);
 void current_utc_time(struct timespec *ts);
+void * thread_ds(void * arg);
+void check_downsample(float * ref, float * out);
+
 
 /***************************************************************************************
 * Testing Functions
@@ -50,6 +58,7 @@ void current_utc_time(struct timespec *ts);
 void downsample(const float * matrix, float * output);
 void downsample_tiered(float * input, float * output);
 void smooth(const float * input, float * output);
+void threaded_downsample(const float * input, float * output, int num_of_threads);
 /*
 *
 ***************************************************************************************/
@@ -57,8 +66,9 @@ void smooth(const float * input, float * output);
 
 main(int argc, char * argv[]) {
 
-   float * matrix, *output;
+   float * matrix, *output, *check;
    struct timespec start, end, difference;
+   long int loop;
 
 /**************************************************************************************
 * Input Initialization
@@ -66,6 +76,8 @@ main(int argc, char * argv[]) {
    matrix = init_matrix(X_WIDTH, Y_WIDTH);
    srand(1);
    seed_matrix(matrix, X_WIDTH*Y_WIDTH);
+   check = init_matrix(OUTPUT_X_WIDTH, OUTPUT_Y_WIDTH);
+   downsample(matrix, check);
 /*
 * Initialization End
 ***************************************************************************************/
@@ -76,12 +88,15 @@ main(int argc, char * argv[]) {
 	output = init_matrix(OUTPUT_X_WIDTH, OUTPUT_Y_WIDTH);
 
 	RECORD_START
-	downsample(matrix, output);   
+        for (loop = ITERATIONS; loop > 0; loop--) {
+		downsample(matrix, output);   
+	}
 	RECORD_END
 	difference = diff(start, end);
+	CHECK_CORRECTNESS
 	free(output);
 
-	printf("Time to do        downsample %d x %d by a factor of %d: \t%d.%09d s\n", X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));
+	printf("Time to do %d iterations       downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));
 /*
 * Downsampling Test End
 ***************************************************************************************/
@@ -92,19 +107,41 @@ main(int argc, char * argv[]) {
 	output = init_matrix(OUTPUT_X_WIDTH, OUTPUT_Y_WIDTH);
    
    	RECORD_START
-	downsample_tiered(matrix, output);
+	for (loop = ITERATIONS; loop > 0; loop--) {
+		downsample_tiered(matrix, output);
+	}
 	RECORD_END
 	difference = diff(start, end);
+	CHECK_CORRECTNESS
 	free(output);
    
-   	printf("Time to do tiered downsample %d x %d by a factor of %d: \t%d.%09d s\n", X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));      
+   	printf("Time to do %d iterations tiered downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));      
 /*
 * Tiered Downsampling Test
+***************************************************************************************/   
+/**************************************************************************************
+* Threaded Downsampling Test
+*/
+	output = init_matrix(OUTPUT_X_WIDTH, OUTPUT_Y_WIDTH);
+   
+   	RECORD_START
+	for (loop = ITERATIONS; loop > 0; loop--) {
+		threaded_downsample(matrix, output, NUM_THREADS);
+	}
+	RECORD_END
+	difference = diff(start, end);
+	CHECK_CORRECTNESS
+	free(output);
+   
+   	printf("Time to do %d iterations %d-threaded downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, NUM_THREADS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));      
+/*
+* Threaded Downsampling Test
 ***************************************************************************************/   
 
 /***************************************************************************************
 * Smoothing Test
 */
+/*
 	output = init_matrix(X_WIDTH, Y_WIDTH);
 
 	RECORD_START	
@@ -114,6 +151,7 @@ main(int argc, char * argv[]) {
 	free(output);
 
 	printf("Time to smooth matrix of size %d x %d: \t\t\t%d.%09d s\n", X_WIDTH, Y_WIDTH, GET_TIME(difference));
+*/
 /*
 * Smoothing Test End
 ***************************************************************************************/   
@@ -194,6 +232,23 @@ void current_utc_time(struct timespec *ts) {
 #endif
  
 }
+
+void check_downsample(float * ref, float * out) {
+	int i, j;
+	int count = 0;
+
+	for (i = 0; i < OUTPUT_X_WIDTH; i++) {
+		for (j = 0; j < OUTPUT_Y_WIDTH; j++) {
+			if(abs(ref[CALC_INDEX_MOD(i,j,OUTPUT_X_WIDTH)] - out[CALC_INDEX_MOD(i,j,OUTPUT_X_WIDTH)]) > TOL) {
+				count++;
+			}
+		}
+	}
+
+	if(count > 0) {
+		printf("Invalid Operations: %d\n", count);
+	}
+}
 /*
 * Helper Functions End
 ***************************************************************************************/
@@ -222,6 +277,55 @@ void downsample(const float * matrix, float * output) {
 		}
    	}
 }
+
+typedef struct {
+	int start;
+	int stride;
+	const float * input;
+	float * output;
+} thread_data_t;
+
+void threaded_downsample(const float * input, float * output, int num_of_threads) {
+	int i;
+	pthread_t ids[num_of_threads];
+	thread_data_t data[num_of_threads];
+	int stride = num_of_threads * BLOCK_WIDTH;
+	
+	for (i = 0; i < num_of_threads; i++) {
+		data[i].start = i * BLOCK_WIDTH;
+		data[i].stride = stride;
+		data[i].input = input;
+		data[i].output = output;
+		pthread_create(&ids[i], NULL, thread_ds, (void *) &data[i]);
+	}
+
+	for (i = 0; i < num_of_threads; i++){
+		pthread_join(ids[i], NULL);
+	}
+}
+
+void * thread_ds(void * arg) {
+	int x, y, xx, yy;
+	thread_data_t * data = (thread_data_t *) arg;
+	int start = data->start;
+	int stride = data->stride;
+	const float * input = data->input;
+	float * output = data->output;
+
+	for (x = start; x < X_WIDTH; x+= stride) {
+                for (y = 0; y < Y_WIDTH; y += BLOCK_WIDTH) {
+                        float sum = 0.0f;
+                        for (xx = x; xx < x+BLOCK_WIDTH; xx++) {
+                                for (yy = y; yy < y+BLOCK_WIDTH; yy++) {
+                                        sum += input[CALC_INDEX(xx, yy)];
+                                }
+                        }
+                        output[CALC_INDEX_MOD(x/BLOCK_WIDTH, y/BLOCK_WIDTH, OUTPUT_X_WIDTH)] = sum / (BLOCK_WIDTH*BLOCK_WIDTH);
+                }
+        }
+
+}
+	
 
 /*
 * Function for doing a Tiered and iterative downsampling
