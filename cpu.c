@@ -50,6 +50,7 @@ int log_2(int number);
 //int clock_gettime(clockid_t clk_id, struct timespec *tp);
 void current_utc_time(struct timespec *ts);
 void * thread_ds(void * arg);
+void * thread_sm(void * arg);
 void check_downsample(float * ref, float * out);
 
 
@@ -60,6 +61,7 @@ void downsample(const float * matrix, float * output);
 void downsample_tiered(float * input, float * output);
 void smooth(const float * input, float * output);
 void threaded_downsample(const float * input, float * output, int num_of_threads);
+void threaded_smooth(const float * input, float * output, int num_of_threads);
 /*
 *
 ***************************************************************************************/
@@ -82,7 +84,7 @@ main(int argc, char * argv[]) {
 /*
 * Initialization End
 ***************************************************************************************/
-
+#ifdef DOWNSAMPLE
 /**************************************************************************************
 * Downsampling Test
 */
@@ -122,10 +124,12 @@ main(int argc, char * argv[]) {
 /*
 * Tiered Downsampling Test
 ***************************************************************************************/   
+#endif
+#ifdef THREAD_DOWNSAMPLE
 /**************************************************************************************
 * Threaded Downsampling Test
 */
-/*	output = init_matrix(OUTPUT_X_WIDTH, OUTPUT_Y_WIDTH);
+	output = init_matrix(OUTPUT_X_WIDTH, OUTPUT_Y_WIDTH);
    
    	RECORD_START
 	for (loop = ITERATIONS; loop > 0; loop--) {
@@ -136,30 +140,57 @@ main(int argc, char * argv[]) {
 	CHECK_CORRECTNESS
 	free(output);
    
-   	printf("Time to do %d iterations %d-threaded downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, NUM_THREADS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));      
-*/
+//   	printf("Time to do %d iterations %d-threaded downsample %d x %d by a factor of %d: \t%d.%09d s\n", ITERATIONS, NUM_THREADS, X_WIDTH, Y_WIDTH, BLOCK_WIDTH, GET_TIME(difference));      
+        printf("%d.%d\n", GET_TIME(difference));
+
 /*
 * Threaded Downsampling Test
 ***************************************************************************************/   
-
+#endif
+#ifdef SMOOTHING
 /***************************************************************************************
 * Smoothing Test
 */
-/*
+
 	output = init_matrix(X_WIDTH, Y_WIDTH);
 
 	RECORD_START	
-	smooth(matrix, output);
+	for (loop = ITERATIONS; loop > 0; loop--) {
+		smooth(matrix, output);
+	}
 	RECORD_END
 	difference = diff(start, end);
 	free(output);
 
-	printf("Time to smooth matrix of size %d x %d: \t\t\t%d.%09d s\n", X_WIDTH, Y_WIDTH, GET_TIME(difference));
-*/
+//	printf("Time to smooth matrix of size %d x %d: \t\t\t%d.%09d s\n", X_WIDTH, Y_WIDTH, GET_TIME(difference));
+	printf("%d %d %d.%09d\n", X_WIDTH, Y_WIDTH, GET_TIME(difference));
+
 /*
 * Smoothing Test End
 ***************************************************************************************/   
+#endif
+#ifdef THREAD_SMOOTHING
+/***************************************************************************************
+* Threaded Smoothing Test
+*/
 
+	output = init_matrix(X_WIDTH, Y_WIDTH);
+
+	RECORD_START	
+	for (loop = ITERATIONS; loop > 0; loop--) {
+		threaded_smooth(matrix, output, NUM_THREADS);
+	}
+	RECORD_END
+	difference = diff(start, end);
+	free(output);
+
+//	printf("Time to smooth matrix of size %d x %d: \t\t\t%d.%09d s\n", X_WIDTH, Y_WIDTH, GET_TIME(difference));
+	printf("%d %d %d.%09d\n", X_WIDTH, Y_WIDTH, GET_TIME(difference));
+
+/*
+* Threaded Smoothing Test End
+***************************************************************************************/   
+#endif
 /***************************************************************************************
 * Cleanup
 */
@@ -384,7 +415,7 @@ void downsample_tiered(float * input, float * output) {
 * Takes every element in the output matrix (excluding border elements)
 * and takes an average of its neighbors in all directions
 *
-*   N N N
+*   	N N N
 *	N E N	where N -> Neighbor
 *	N N N		  E -> Current Element
 *
@@ -395,22 +426,106 @@ void smooth(const float * input, float * output) {
 	for (i = 1; i < X_WIDTH - 1; i++) {
 		for (j = 1; j < Y_WIDTH - 1; j++) {
 			float sum = 0.0f;
-			sum+= input[CALC_INDEX(i-1, j-1)];
-			sum+= input[CALC_INDEX(i-1, j)];
-			sum+= input[CALC_INDEX(i-1, j+1)];
+			sum+= .0625*input[CALC_INDEX(i-1, j-1)];
+			sum+= .125*input[CALC_INDEX(i-1, j)];
+			sum+= .0625*input[CALC_INDEX(i-1, j+1)];
 			
-			sum+= input[CALC_INDEX(i, j-1)];
-			sum+= input[CALC_INDEX(i, j)]; //add ourselves to the average
-			sum+= input[CALC_INDEX(i, j+1)];
+			sum+= .125*input[CALC_INDEX(i, j-1)];
+			sum+= .25*input[CALC_INDEX(i, j)]; //add ourselves to the average
+			sum+= .125*input[CALC_INDEX(i, j+1)];
 			
-			sum+= input[CALC_INDEX(i+1, j-1)];
-			sum+= input[CALC_INDEX(i+1, j)];
-			sum+= input[CALC_INDEX(i+1, j+1)];
+			sum+= .0625*input[CALC_INDEX(i+1, j-1)];
+			sum+= .125*input[CALC_INDEX(i+1, j)];
+			sum+= .0625*input[CALC_INDEX(i+1, j+1)];
 			
-			output[CALC_INDEX(i,j)] = sum / 9;
+			output[CALC_INDEX(i,j)] = sum;
 		}	
 	}	
+}
+
+void threaded_smooth(const float * input, float * output, int num_of_threads) {
+	int i;
+	pthread_t ids[num_of_threads];
+	thread_data_t data[num_of_threads];
+	int stride = num_of_threads;
+
+	for (i = 0; i < num_of_threads; i++) {
+		data[i].start = i+1;
+		data[i].stride = stride;
+		data[i].input = input;
+		data[i].output = output;
+		pthread_create(&ids[i], NULL, thread_sm, (void *) &data[i]); 
+	}
+
+	for (i = 0; i < num_of_threads; i++) {
+		pthread_join(ids[i], NULL);
+	}
+}
+
+void * thread_sm(void * arg) {
+	int i, j;
+	thread_data_t * data = (thread_data_t *) arg;
+	int start = data->start;
+	int stride = data->stride;
+	const float * input = data->input;
+	float * output = data->output;
+	
+	for (i = start; i < X_WIDTH-1; i+=stride) {
+		for (j = 1; j < Y_WIDTH-1; j++) {
+			float sum = 0.0f;
+			sum+= .0625*input[CALC_INDEX(i-1, j-1)];
+			sum+= .125*input[CALC_INDEX(i-1, j)];
+			sum+= .0625*input[CALC_INDEX(i-1, j+1)];
+			
+			sum+= .125*input[CALC_INDEX(i, j-1)];
+			sum+= .25*input[CALC_INDEX(i, j)]; //add ourselves to the average
+			sum+= .125*input[CALC_INDEX(i, j+1)];
+			
+			sum+= .0625*input[CALC_INDEX(i+1, j-1)];
+			sum+= .125*input[CALC_INDEX(i+1, j)];
+			sum+= .0625*input[CALC_INDEX(i+1, j+1)];
+			
+			output[CALC_INDEX(i,j)] = sum ;
+
+		}
+	}
 }
 /*
 * Testing Functions End
 ***************************************************************************************/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

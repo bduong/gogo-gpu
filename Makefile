@@ -7,7 +7,7 @@ else
 CPU_FLAGS       := -lpthread -lrt
 endif
 
-cpu: cpu.c
+cpu: cpu.c defines.h
 	$(CC) -o $@ $< $(CPU_FLAGS) -I$(CURDIR)
 
 cpu_thread: cpu_test_thread.c

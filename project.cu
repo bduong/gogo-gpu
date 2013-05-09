@@ -8,10 +8,10 @@
 #include <helper_cuda.h>
 #include <helper_timer.h>
 #include <helper_functions.h>
-//#include "defines.h"
+#include "defines.h"
 
-#define SM_ARR_LEN		8000
-#define FACTOR                  8     //downsample factor
+//#define SM_ARR_LEN		8000
+//#define FACTOR                  8     //downsample factor
 #define OUT_ARR_LEN		SM_ARR_LEN
 //#define OUT_ARR_LEN             SM_ARR_LEN/FACTOR    //downsample array length
 #define TILE_WIDTH              8
@@ -53,7 +53,7 @@ __global__ void smoothing_s(const float* input, float* output)
 
     output[Row*SM_ARR_LEN + Col] = sum/9.0f;
 }
-/*
+
 //Smoothing blocked    
 __global__ void smoothing(const float* input, float* output)
 {
@@ -76,7 +76,7 @@ __global__ void smoothing(const float* input, float* output)
 
     output[Row*SM_ARR_LEN + Col] = sum/9.0f;
 }
-*/
+
 /*
 //Smoothing unblocked    
 __global__ void smoothing(const float* input, float* output)
@@ -222,7 +222,7 @@ int main(void)
 	fprintf(stderr, "Failed to copy Matrix B from hos to device (error code %s)! \n", cudaGetErrorString(err));
     }
 
-    printf("CUDA kernel launch with %d blocks of %d threads \n", BLOCKS, TILE_WIDTH*TILE_WIDTH);
+//    printf("CUDA kernel launch with %d blocks of %d threads \n", BLOCKS, TILE_WIDTH*TILE_WIDTH);
 
     //This is setup for all functions except smoothing without blocking
     dim3 blocksPerGrid(BLOCKS,BLOCKS,1);
@@ -237,7 +237,7 @@ int main(void)
     for (int j=0; j<200; j++)
 //    downsample <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
 //    downsample_s <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
-//    smoothing <<< dimGrid, dimBlock >>>(d_A, d_B);
+//    smoothing <<< blocksPerGrid, threadsPerBlock>>>(d_A, d_B);
     smoothing_s <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B);
     cudaDeviceSynchronize();
 //    sdkStopTimer(&kernelTime);
