@@ -76,7 +76,6 @@ __global__ void smoothing(const float* input, float* output)
 
     output[Row*SM_ARR_LEN + Col] = sum/9.0f;
 }
-
 /*
 //Smoothing unblocked    
 __global__ void smoothing(const float* input, float* output)
@@ -97,7 +96,7 @@ __global__ void smoothing(const float* input, float* output)
     output[tx * SM_ARR_LEN + ty] = sum;
 }
 */
-/*
+
 //Downsample with shared memory
 __global__ void downsample_s(const float* input, float* output, int Width)
 {
@@ -110,7 +109,7 @@ __global__ void downsample_s(const float* input, float* output, int Width)
     int Row = by * TILE_WIDTH + ty;
     int Col = bx * TILE_WIDTH + tx;
 
-    float Pvalue = 0.0; // REGISTER!
+    float Pvalue = 0.0f; // REGISTER!
 
     for (int j = 0; j<FACTOR; ++j){
 	for (int k = 0; k < FACTOR; ++k)
@@ -125,8 +124,8 @@ __global__ void downsample_s(const float* input, float* output, int Width)
 
     output[Row*OUT_ARR_LEN+Col] = Pvalue/(FACTOR*FACTOR);
 }
-*/
-/*
+
+
 __global__ void downsample(const float* input, float* output, int Width)
 {
     int bx = blockIdx.x; int by = blockIdx.y; // ID thread
@@ -136,7 +135,7 @@ __global__ void downsample(const float* input, float* output, int Width)
     int Row = by * TILE_WIDTH + ty;
     int Col = bx * TILE_WIDTH + tx;
 
-    float Pvalue = 0.0; // REGISTER!
+    float Pvalue = 0.0f; // REGISTER!
 
     for (int j = 0; j<FACTOR; ++j)
 	for (int k = 0; k < FACTOR; ++k)
@@ -144,7 +143,7 @@ __global__ void downsample(const float* input, float* output, int Width)
 
     output[Row*OUT_ARR_LEN+Col] = Pvalue/(FACTOR*FACTOR);
 }
-*/
+
 /**
 * Host Main routine
 *
@@ -153,10 +152,6 @@ __global__ void downsample(const float* input, float* output, int Width)
 int main(void)
 {
     struct timespec diff(struct timespec start, struct timespec end);
-    struct timespec time1, time2, time3, time4;
-    struct timespec time_stamp[2];
-    float difference;
-
     StopWatchInterface *kernelTime = 0;
 
     sdkCreateTimer(&kernelTime);
@@ -166,13 +161,10 @@ int main(void)
     cudaError_t err = cudaSuccess;
     
     // Print the vector length to be used and compute it's size
-    int length = SM_ARR_LEN;
     int numElements = SM_ARR_LEN*SM_ARR_LEN;
     int numElementsout = OUT_ARR_LEN*OUT_ARR_LEN;
     size_t size = numElements * sizeof(float);
     size_t size_out = numElementsout * sizeof(float);  //output matrix
-//    printf("Downsample of %d elements \n",numElements);
-//    printf("Output of %d elements \n",numElementsout);
 
     // Allocate HOST MEMORY
     float *h_A = (float*) malloc(size);
@@ -191,7 +183,6 @@ int main(void)
 
       sdkStartTimer(&kernelTime);  
 
-//    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time3); //get start time for cuda
     // Allocate DEVICE vectors
     float *d_A = NULL;
     float *d_B = NULL;
@@ -222,26 +213,25 @@ int main(void)
 	fprintf(stderr, "Failed to copy Matrix B from hos to device (error code %s)! \n", cudaGetErrorString(err));
     }
 
-//    printf("CUDA kernel launch with %d blocks of %d threads \n", BLOCKS, TILE_WIDTH*TILE_WIDTH);
 
     //This is setup for all functions except smoothing without blocking
     dim3 blocksPerGrid(BLOCKS,BLOCKS,1);
     dim3 threadsPerBlock(TILE_WIDTH,TILE_WIDTH,1);
 
-    //This is setup for smoothing without blocking
-//    dim3 dimGrid(1,1,1);
-//    dim3 dimBlock(length, length,1);
-
-//    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time1);
-//    sdkStartTimer(&kernelTime);
     for (int j=0; j<200; j++)
-//    downsample <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
-//    downsample_s <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
-//    smoothing <<< blocksPerGrid, threadsPerBlock>>>(d_A, d_B);
-    smoothing_s <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B);
+    #ifdef DOWNSAMPLE
+    	downsample <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
+	#endif
+	#ifdef DOWNSAMPLE_SHARED
+    	downsample_s <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B, length);
+	#endif
+	#ifdef SMOOTHING
+	    smoothing <<< blocksPerGrid, threadsPerBlock>>>(d_A, d_B);
+	#endif
+	#ifdef SMOOTHING_SHARED
+	    smoothing_s <<< blocksPerGrid, threadsPerBlock >>>(d_A, d_B);
+    #endif
     cudaDeviceSynchronize();
-//    sdkStopTimer(&kernelTime);
-//    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time2);
 
 
     err = cudaGetLastError();
@@ -253,7 +243,6 @@ int main(void)
     }
     // Copy the device result vector in device memory to the host result vector
     // in host memory
-//    printf("Copy output data from CUDA device to the host memory \n");
     err = cudaMemcpy(h_B,d_B,size_out,cudaMemcpyDeviceToHost);
     if(err != cudaSuccess)
     {
@@ -282,37 +271,18 @@ int main(void)
 	fprintf(stderr,"Failed to deinitialize the device! (error code %s)! \n",cudaGetErrorString(err));
 	exit(EXIT_FAILURE);
     }
-//    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time4);
-//    time_stamp[0] = diff(time3,time4);
 
     cudaDeviceSynchronize();
     sdkStopTimer(&kernelTime);
 
-//    for(int i=0; i < numElementsout; i++)
-//    {
-//        difference = abs(h_B[i]-h_B[i]);
-//        difference = abs(h_B[i]-1.0);
-//	if( difference > TOL)
-//	{
-//	    fprintf(stderr, "Result verification failed at element %d\n",i);
-//            printf("GPU: %f     CPU: %f     difference: %f\n", h_A[i], h_B[i], difference);
-//            printf("GPU: %f     CPU: %f     index: %d\n", h_A[i], h_B[i], i);
-//            printf("difference: %f\n", difference);
-//	    exit(EXIT_FAILURE);
-//	}
-//    }
 
     //PRINT TIME FOR CUDA
-//    printf("cuda time: %ld\n", (long int)((double)(CPG)*(double)
-//		 (GIG * time_stamp[0].tv_sec + time_stamp[0].tv_nsec)));
-//    printf ("Time for the kernel: %f ms\n", sdkGetTimerValue(&kernelTime));
     printf (" %f \n", sdkGetTimerValue(&kernelTime) /1000);
     
 // free hosts memory
     free(h_A);
     free(h_B);
 
-//    printf("DONE \n");
     return 0;
 }
 
